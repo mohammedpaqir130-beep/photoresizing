@@ -67,19 +67,22 @@ function ContentSections() {
           <li>
             Pick a mode:
             <ul style={{ marginTop: 4, paddingLeft: 18 }}>
-              <li><strong>Enhance &amp; Upscale (AI)</strong> for improving quality or making small
-                  images larger.</li>
+              <li><strong>Enhance &amp; Upscale (AI)</strong> for improving quality or making small images larger.</li>
               <li><strong>Resize &amp; Crop</strong> for exact pixel sizes and simple edits.</li>
+              <li><strong>Studio Tools</strong> for rotate, flip and quick presets.</li>
+              <li><strong>Filters</strong> for cinematic / warm / cool / retro looks.</li>
+              <li><strong>Text &amp; Watermark</strong> to add your logo or text.</li>
+              <li><strong>Background Remover</strong> to make the background transparent (for PNG).</li>
             </ul>
           </li>
           <li>Adjust the width and height or use the percentage buttons (25%, 50%, 200%, etc.).</li>
           <li>Optionally draw a crop area on the image to cut out a specific part.</li>
+          <li>Use Studio / Filters / Text / Background tabs to finish your edit.</li>
           <li>Select the output format (PNG, JPG or WebP) and quality level.</li>
           <li>Click <strong>Download image</strong> to save the result to your device.</li>
         </ol>
         <p style={styles.muted}>
-          Tip: For most photos, JPG or WebP at 70–85% quality gives a very small file size while
-          keeping the picture sharp.
+          Tip: For transparent background, export as <strong>PNG</strong> so the alpha channel is kept.
         </p>
       </section>
 
@@ -105,6 +108,14 @@ function ContentSections() {
           <li>
             <strong>AI Upscaling:</strong> Improve small or slightly blurry images using AI models,
             then fine-tune sharpness and noise.
+          </li>
+          <li>
+            <strong>Studio &amp; Filters:</strong> Rotate, flip, apply cinematic looks and add custom
+            watermarks for a complete mini photo studio.
+          </li>
+          <li>
+            <strong>Magic Background Remover:</strong> Detect the background color and make it transparent
+            for product photos, sprites and thumbnails.
           </li>
         </ul>
       </section>
@@ -238,15 +249,13 @@ function ContentSections() {
           <strong>simple, fast and ad-friendly</strong> without pop-ups or fake download buttons.
         </p>
         <p style={{ fontSize: 14, lineHeight: 1.7 }}>
-    If you find a bug or have a feature request, you can contact me directly at{" "}
-    <a href="mailto:mohammedpaqir130@gmail.com" style={{ color: "#a9e9ff" }}>
-      mohammedpaqir130@gmail.com
-    </a>.
-  </p>
-
+          If you find a bug or have a feature request, you can contact me directly at{" "}
+          <a href="mailto:mohammedpaqir130@gmail.com" style={{ color: "#a9e9ff" }}>
+            mohammedpaqir130@gmail.com
+          </a>.
+        </p>
       </section>
     </>
-
   );
 }
 
@@ -280,7 +289,7 @@ function DownloadSection({ format, setFormat, quality, setQuality, imgObj, compr
         <label style={styles.label}>
           Format
           <select style={styles.input} value={format} onChange={(e) => setFormat(e.target.value)} disabled={!imgObj}>
-            <option value="image/png">PNG (lossless)</option>
+            <option value="image/png">PNG (lossless, supports transparency)</option>
             <option value="image/jpeg">JPG (small, lossy)</option>
             <option value="image/webp">WebP (small, modern)</option>
           </select>
@@ -344,8 +353,8 @@ export default function App() {
   const [compressedURL, setCompressedURL] = useState(null);
   const [compressedSize, setCompressedSize] = useState(0);
 
-  // TABS
-  const [tab, setTab] = useState("ai"); // "ai" | "resize"
+  // TABS: "ai" | "resize" | "studio" | "filters" | "text" | "bg"
+  const [tab, setTab] = useState("ai");
 
   // ============== Enhance & Upscale (AI) state ==============
   const [upscaleFactor, setUpscaleFactor] = useState(2); // 2 or 4
@@ -365,6 +374,20 @@ export default function App() {
   const [sel, setSel] = useState(null);
   const draggingRef = useRef(false);
   const startPtRef = useRef(null);
+
+  // ============== Filters & Watermark state ==============
+  const [filterStrength, setFilterStrength] = useState(0.8);
+
+  const [wmText, setWmText] = useState("PhotoResizing.net");
+  const [wmSize, setWmSize] = useState(32);
+  const [wmOpacity, setWmOpacity] = useState(0.5);
+  const [wmPosition, setWmPosition] = useState("bottom-right"); // "top-left", etc.
+  const [wmColor, setWmColor] = useState("#ffffff");
+
+  // ============== Magic Background Remover state ==============
+  const [bgTolerance, setBgTolerance] = useState(60); // color distance threshold
+  const [bgFeather, setBgFeather] = useState(20);     // smooth edge width in color space
+  const [bgSamplePreview, setBgSamplePreview] = useState(null); // "rgb(r,g,b)"
 
   /* ---------- helpers ---------- */
   function dataURLBytes(dataURL) {
@@ -407,7 +430,6 @@ export default function App() {
   function draw(image, dw, dh) {
     const c = canvasRef.current; if (!c || !image) return;
     const ctx = c.getContext("2d");
-    // crisp draw; browser handles filtering when scaling for view only
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     c.width = dw; c.height = dh;
@@ -719,7 +741,6 @@ export default function App() {
               let r = data[p], g = data[p+1], b = data[p+2]; p += 4;
               if (mode === "0to1") { r/=255; g/=255; b/=255; }
               else if (mode === "neg1to1"){ r=(r/255-0.5)/0.5; g=(g/255-0.5)/0.5; b=(b/255-0.5)/0.5; }
-              // "0to255": leave as-is
 
               if (MODEL_EXPECTS_BGR) { chw[c0++]=b; chw[c1++]=g; chw[c2++]=r; }
               else { chw[c0++]=r; chw[c1++]=g; chw[c2++]=b; }
@@ -1034,6 +1055,264 @@ export default function App() {
   }
   function clearCrop() { setSel(null); overlayClear(); }
 
+  /* ===================== STUDIO TOOLS (rotate, flip, presets) ===================== */
+
+  function applyPresetSize(targetW, targetH) {
+    if (!imgObj || !canvasRef.current) return;
+    const c = canvasRef.current;
+    const ctx = c.getContext("2d");
+    const wNew = Math.max(1, targetW);
+    const hNew = Math.max(1, targetH);
+    c.width = wNew;
+    c.height = hNew;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.clearRect(0, 0, wNew, hNew);
+    ctx.drawImage(
+      imgObj,
+      0, 0, imgObj.naturalWidth, imgObj.naturalHeight,
+      0, 0, wNew, hNew
+    );
+    setW(wNew);
+    setH(hNew);
+    updateCompressedPreview();
+  }
+
+  function rotateCanvas(direction) {
+    if (!canvasRef.current) return;
+    const src = canvasRef.current;
+    const temp = cloneCanvas(src);
+    const ctx = src.getContext("2d");
+    const angle = direction === "left" ? -Math.PI / 2 : Math.PI / 2;
+    const newW = temp.height;
+    const newH = temp.width;
+    src.width = newW;
+    src.height = newH;
+    ctx.save();
+    ctx.translate(newW / 2, newH / 2);
+    ctx.rotate(angle);
+    ctx.drawImage(temp, -temp.width / 2, -temp.height / 2);
+    ctx.restore();
+    setW(newW);
+    setH(newH);
+    updateCompressedPreview();
+  }
+
+  function flipCanvas(mode) {
+    if (!canvasRef.current) return;
+    const src = canvasRef.current;
+    const temp = cloneCanvas(src);
+    const ctx = src.getContext("2d");
+    const wNew = temp.width;
+    const hNew = temp.height;
+    src.width = wNew;
+    src.height = hNew;
+    ctx.save();
+    ctx.translate(
+      mode === "horizontal" ? wNew : 0,
+      mode === "vertical" ? hNew : 0
+    );
+    ctx.scale(
+      mode === "horizontal" ? -1 : 1,
+      mode === "vertical" ? -1 : 1
+    );
+    ctx.drawImage(temp, 0, 0);
+    ctx.restore();
+    setW(wNew);
+    setH(hNew);
+    updateCompressedPreview();
+  }
+
+  /* ===================== FILTERS TAB (cinematic / warm / cool / retro) ===================== */
+
+  function applyPresetFilter(preset) {
+    if (!canvasRef.current || !imgObj) return;
+    const c = canvasRef.current;
+    const ctx = c.getContext("2d");
+    const imgData = ctx.getImageData(0, 0, c.width, c.height);
+    const d = imgData.data;
+    const s = Math.max(0, Math.min(1, filterStrength));
+
+    for (let i = 0; i < d.length; i += 4) {
+      let r = d[i];
+      let g = d[i + 1];
+      let b = d[i + 2];
+
+      const avg = (r + g + b) / 3;
+
+      if (preset === "cinematic") {
+        // teal shadows, warm highlights, slight contrast
+        const contrast = 1 + 0.3 * s;
+        r = (r - 128) * contrast + 128;
+        g = (g - 128) * contrast + 128;
+        b = (b - 128) * contrast + 128;
+
+        // teal in shadows
+        const shadowFactor = (255 - avg) / 255 * s;
+        b += 25 * shadowFactor;
+        g += 10 * shadowFactor;
+
+        // warm highlights
+        const highlightFactor = avg / 255 * s;
+        r += 20 * highlightFactor;
+      } else if (preset === "warm") {
+        r += 25 * s;
+        g += 10 * s;
+        b -= 10 * s;
+      } else if (preset === "cool") {
+        r -= 10 * s;
+        g += 5 * s;
+        b += 25 * s;
+      } else if (preset === "retro") {
+        // slight fade + warm shift + low sat
+        const fade = 1 - 0.15 * s;
+        r *= fade;
+        g *= fade;
+        b *= fade;
+        const gray = 0.3 * r + 0.59 * g + 0.11 * b;
+        r = gray + (r - gray) * (1 - 0.3 * s);
+        g = gray + (g - gray) * (1 - 0.3 * s);
+        b = gray + (b - gray) * (1 - 0.5 * s);
+        r += 15 * s;
+        b -= 5 * s;
+      }
+
+      d[i] = Math.max(0, Math.min(255, r));
+      d[i + 1] = Math.max(0, Math.min(255, g));
+      d[i + 2] = Math.max(0, Math.min(255, b));
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+    updateCompressedPreview();
+  }
+
+  /* ===================== TEXT & WATERMARK TAB ===================== */
+
+  function applyWatermark() {
+    if (!canvasRef.current || !imgObj || !wmText) return;
+    const c = canvasRef.current;
+    const ctx = c.getContext("2d");
+
+    ctx.save();
+    ctx.font = `${wmSize}px Inter, system-ui, sans-serif`;
+    ctx.textBaseline = "bottom";
+
+    const metrics = ctx.measureText(wmText);
+    const textW = metrics.width;
+    const textH = wmSize;
+
+    let x = 0;
+    let y = 0;
+    const margin = 16;
+
+    if (wmPosition === "top-left") {
+      x = margin;
+      y = margin + textH;
+    } else if (wmPosition === "top-right") {
+      x = c.width - textW - margin;
+      y = margin + textH;
+    } else if (wmPosition === "bottom-left") {
+      x = margin;
+      y = c.height - margin;
+    } else if (wmPosition === "bottom-right") {
+      x = c.width - textW - margin;
+      y = c.height - margin;
+    } else { // center
+      x = (c.width - textW) / 2;
+      y = (c.height + textH) / 2;
+    }
+
+    ctx.globalAlpha = Math.max(0, Math.min(1, wmOpacity));
+    ctx.fillStyle = wmColor;
+    ctx.shadowColor = "rgba(0,0,0,0.7)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+
+    ctx.fillText(wmText, x, y);
+    ctx.restore();
+
+    updateCompressedPreview();
+  }
+
+  /* ===================== MAGIC BACKGROUND REMOVER ===================== */
+
+  function estimateBackgroundFromImageData(imgData, width, height) {
+    const d = imgData.data;
+    if (!width || !height) return [255, 255, 255];
+
+    const pts = [
+      [0, 0],
+      [width - 1, 0],
+      [0, height - 1],
+      [width - 1, height - 1],
+      [Math.floor(width / 2), 0],
+      [Math.floor(width / 2), height - 1],
+      [0, Math.floor(height / 2)],
+      [width - 1, Math.floor(height / 2)],
+    ];
+
+    let r = 0, g = 0, b = 0, n = 0;
+    for (const [x, y] of pts) {
+      const idx = (y * width + x) * 4;
+      r += d[idx];
+      g += d[idx + 1];
+      b += d[idx + 2];
+      n++;
+    }
+    if (!n) return [255, 255, 255];
+    return [
+      Math.round(r / n),
+      Math.round(g / n),
+      Math.round(b / n),
+    ];
+  }
+
+  function applyMagicBackgroundRemoval() {
+    if (!canvasRef.current || !imgObj) return;
+    const c = canvasRef.current;
+    const ctx = c.getContext("2d");
+    const width = c.width;
+    const height = c.height;
+    if (!width || !height) return;
+
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const d = imgData.data;
+
+    const [bgR, bgG, bgB] = estimateBackgroundFromImageData(imgData, width, height);
+    setBgSamplePreview(`rgb(${bgR}, ${bgG}, ${bgB})`);
+
+    const tol = Math.max(0, bgTolerance);
+    const feather = Math.max(0, bgFeather);
+
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const a = d[i + 3];
+
+      const dr = r - bgR;
+      const dg = g - bgG;
+      const db = b - bgB;
+      const dist = Math.sqrt(dr*dr + dg*dg + db*db);
+
+      if (dist <= tol - feather) {
+        // very close to background color → fully transparent
+        d[i + 3] = 0;
+      } else if (feather > 0 && dist < tol + feather) {
+        // in soft edge zone → fade alpha
+        const t = (dist - (tol - feather)) / (2 * feather); // 0..1
+        const k = Math.max(0, Math.min(1, t));
+        d[i + 3] = Math.round(a * k);
+      } else {
+        // far from background → keep alpha
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+    updateCompressedPreview();
+  }
+
   /* ---------- Effects ---------- */
   useEffect(() => { updateCompressedPreview(); }, [format, quality, imgObj]);
   useEffect(() => { ensureAiReady(); }, []);
@@ -1073,6 +1352,7 @@ export default function App() {
           padding:10px 14px; border-radius:10px;
           border:1px solid #2b2b2b; background:#151515; color:#bdbdbd;
           cursor:pointer; transition: all .15s ease;
+          font-size: 13px;
         }
         .tabbtn:hover { border-color:#00b3ff; color:#a9e9ff; }
         .tabbtn.active {
@@ -1088,13 +1368,13 @@ export default function App() {
       {/* HEADER */}
       <header style={styles.header}>
         <h1 style={{ margin: 0, textAlign: "center" }}>
-          PhotoResizing — Free Online Image Resizer &amp; AI Upscaler
+          PhotoResizing — Free Online Image Resizer &amp; AI Upscaler &amp; more
         </h1>
         <p style={{ margin: "8px 0 0", color: "#9ca3af", textAlign: "center", fontSize: 14 }}>
-          Resize, crop, compress and enhance your images in the browser. No watermarks, no sign-up.
+          Resize, crop, enhance, filter, watermark and remove backgrounds in the browser.
         </p>
 
-        {/* Simple anchor nav for content sections */}
+      {/* Simple anchor nav for content sections */}
         <nav style={{ marginTop: 12, fontSize: 13, display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
           <a href="#how-to" style={navLink}>How it works</a>
           <a href="#features" style={navLink}>Features</a>
@@ -1106,13 +1386,41 @@ export default function App() {
 
       {/* TABS AT VERY TOP (sticky) */}
       <div className="tabs-bar">
-        <button className={`tabbtn ${tab === "ai" ? "active" : ""}`}
-                onClick={() => { setTab("ai"); setCropMode(false); setSel(null); overlayClear(); }}>
-          Enhance &amp; Upscale (AI)
+        <button
+          className={`tabbtn ${tab === "ai" ? "active" : ""}`}
+          onClick={() => { setTab("ai"); setCropMode(false); setSel(null); overlayClear(); }}
+        >
+          AI Enhance
         </button>
-        <button className={`tabbtn ${tab === "resize" ? "active" : ""}`}
-                onClick={() => setTab("resize")}>
+        <button
+          className={`tabbtn ${tab === "resize" ? "active" : ""}`}
+          onClick={() => setTab("resize")}
+        >
           Resize &amp; Crop
+        </button>
+        <button
+          className={`tabbtn ${tab === "studio" ? "active" : ""}`}
+          onClick={() => { setTab("studio"); setCropMode(false); setSel(null); overlayClear(); }}
+        >
+          Studio Tools
+        </button>
+        <button
+          className={`tabbtn ${tab === "filters" ? "active" : ""}`}
+          onClick={() => { setTab("filters"); setCropMode(false); setSel(null); overlayClear(); }}
+        >
+          Filters
+        </button>
+        <button
+          className={`tabbtn ${tab === "text" ? "active" : ""}`}
+          onClick={() => { setTab("text"); setCropMode(false); setSel(null); overlayClear(); }}
+        >
+          Text &amp; Watermark
+        </button>
+        <button
+          className={`tabbtn ${tab === "bg" ? "active" : ""}`}
+          onClick={() => { setTab("bg"); setCropMode(false); setSel(null); overlayClear(); }}
+        >
+          Background Remover
         </button>
       </div>
 
@@ -1160,7 +1468,7 @@ export default function App() {
           {/* TAB CONTENTS */}
           {tab === "ai" && (
             <section className="card-hover" style={styles.card}>
-              <h2 style={styles.h2}>2) Enhance &amp; Upscale</h2>
+              <h2 style={styles.h2}>2) Enhance &amp; Upscale (AI)</h2>
               <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
                 <label className="pill">
                   Scale:
@@ -1187,27 +1495,33 @@ export default function App() {
 
                 <label className="pill">
                   Detail: {detailBoost.toFixed(2)}
-                  <input type="range" min="0" max="1" step="0.01"
-                        value={detailBoost}
-                        onChange={(e)=>setDetailBoost(parseFloat(e.target.value))}
-                        style={{ width:140 }}
-                        disabled={!imgObj || aiBusy}/>
+                  <input
+                    type="range" min="0" max="1" step="0.01"
+                    value={detailBoost}
+                    onChange={(e)=>setDetailBoost(parseFloat(e.target.value))}
+                    style={{ width:140 }}
+                    disabled={!imgObj || aiBusy}
+                  />
                 </label>
                 <label className="pill">
                   Micro-contrast: {microContrast.toFixed(2)}
-                  <input type="range" min="0" max="1" step="0.01"
-                        value={microContrast}
-                        onChange={(e)=>setMicroContrast(parseFloat(e.target.value))}
-                        style={{ width:140 }}
-                        disabled={!imgObj || aiBusy}/>
+                  <input
+                    type="range" min="0" max="1" step="0.01"
+                    value={microContrast}
+                    onChange={(e)=>setMicroContrast(parseFloat(e.target.value))}
+                    style={{ width:140 }}
+                    disabled={!imgObj || aiBusy}
+                  />
                 </label>
                 <label className="pill">
                   Denoise: {denoise.toFixed(2)}
-                  <input type="range" min="0" max="1" step="0.01"
-                        value={denoise}
-                        onChange={(e)=>setDenoise(parseFloat(e.target.value))}
-                        style={{ width:140 }}
-                        disabled={!imgObj || aiBusy}/>
+                  <input
+                    type="range" min="0" max="1" step="0.01"
+                    value={denoise}
+                    onChange={(e)=>setDenoise(parseFloat(e.target.value))}
+                    style={{ width:140 }}
+                    disabled={!imgObj || aiBusy}
+                  />
                 </label>
               </div>
 
@@ -1328,6 +1642,332 @@ export default function App() {
             </>
           )}
 
+          {tab === "studio" && (
+            <section className="card-hover" style={styles.card}>
+              <h2 style={styles.h2}>2) Studio Tools — Quick Edits</h2>
+
+              {/* PRESETS */}
+              <div style={{ marginBottom: 16 }}>
+                <h3 style={{ fontSize: 15, margin: "0 0 8px" }}>Popular Presets</h3>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => applyPresetSize(1920, 1080)}
+                  >
+                    1920×1080 (YouTube / Screen)
+                  </button>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => applyPresetSize(1280, 720)}
+                  >
+                    1280×720 (HD Thumbnail)
+                  </button>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => applyPresetSize(1080, 1080)}
+                  >
+                    1080×1080 (Square / Insta)
+                  </button>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => applyPresetSize(512, 512)}
+                  >
+                    512×512 (Icon / Sprite)
+                  </button>
+                </div>
+              </div>
+
+              {/* ROTATE / FLIP */}
+              <div style={{ marginBottom: 16 }}>
+                <h3 style={{ fontSize: 15, margin: "0 0 8px" }}>Rotate &amp; Flip</h3>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => rotateCanvas("left")}
+                  >
+                    ⟲ Rotate 90° Left
+                  </button>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => rotateCanvas("right")}
+                  >
+                    ⟳ Rotate 90° Right
+                  </button>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => flipCanvas("horizontal")}
+                  >
+                    ⇋ Flip Horizontal
+                  </button>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => flipCanvas("vertical")}
+                  >
+                    ⇅ Flip Vertical
+                  </button>
+                </div>
+              </div>
+
+              <p style={styles.muted}>
+                Use Studio for fast layout changes. For color and mood, switch to the Filters tab.
+              </p>
+            </section>
+          )}
+
+          {tab === "filters" && (
+            <section className="card-hover" style={styles.card}>
+              <h2 style={styles.h2}>2) Filters &amp; Looks</h2>
+              <p style={styles.muted}>
+                Choose a look and adjust the strength. Filters stack on top of the current image. You can always reset
+                from the Preview section to go back to the original upload.
+              </p>
+
+              <div style={{ marginBottom: 16 }}>
+                <h3 style={{ fontSize: 15, margin: "0 0 8px" }}>Filter Strength</h3>
+                <label style={styles.label}>
+                  Strength: {filterStrength.toFixed(2)}
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={filterStrength}
+                    onChange={(e) => setFilterStrength(parseFloat(e.target.value))}
+                    disabled={!imgObj}
+                  />
+                </label>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <h3 style={{ fontSize: 15, margin: "0 0 8px" }}>Filter Presets</h3>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => applyPresetFilter("cinematic")}
+                  >
+                    Cinematic (teal &amp; orange)
+                  </button>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => applyPresetFilter("warm")}
+                  >
+                    Warm sunset
+                  </button>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => applyPresetFilter("cool")}
+                  >
+                    Cool blue
+                  </button>
+                  <button
+                    className="btn"
+                    style={btn}
+                    disabled={!imgObj}
+                    onClick={() => applyPresetFilter("retro")}
+                  >
+                    Retro / faded
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {tab === "text" && (
+            <section className="card-hover" style={styles.card}>
+              <h2 style={styles.h2}>2) Text &amp; Watermark</h2>
+
+              <div style={{ display: "grid", gap: 12 }}>
+                <label style={styles.label}>
+                  Watermark text
+                  <input
+                    style={styles.input}
+                    type="text"
+                    value={wmText}
+                    onChange={(e) => setWmText(e.target.value)}
+                    placeholder="Your brand / channel / website"
+                    disabled={!imgObj}
+                  />
+                </label>
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
+                  <label style={styles.label}>
+                    Size: {wmSize}px
+                    <input
+                      type="range"
+                      min="10"
+                      max="96"
+                      step="1"
+                      value={wmSize}
+                      onChange={(e) => setWmSize(parseInt(e.target.value, 10))}
+                      disabled={!imgObj}
+                    />
+                  </label>
+
+                  <label style={styles.label}>
+                    Opacity: {wmOpacity.toFixed(2)}
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="1"
+                      step="0.05"
+                      value={wmOpacity}
+                      onChange={(e) => setWmOpacity(parseFloat(e.target.value))}
+                      disabled={!imgObj}
+                    />
+                  </label>
+
+                  <label style={styles.label}>
+                    Color
+                    <input
+                      type="color"
+                      value={wmColor}
+                      onChange={(e) => setWmColor(e.target.value)}
+                      disabled={!imgObj}
+                      style={{ width: 60, height: 32, padding: 0, borderRadius: 8, border: "1px solid #2b2b2b" }}
+                    />
+                  </label>
+                </div>
+
+                <div>
+                  <h3 style={{ fontSize: 15, margin: "0 0 8px", textAlign: "center" }}>Position</h3>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                    {[
+                      ["top-left", "Top left"],
+                      ["top-right", "Top right"],
+                      ["center", "Center"],
+                      ["bottom-left", "Bottom left"],
+                      ["bottom-right", "Bottom right"],
+                    ].map(([value, labelText]) => (
+                      <button
+                        key={value}
+                        className="btn"
+                        style={{
+                          ...btn,
+                          borderColor: wmPosition === value ? "#00b3ff" : btn.border,
+                          background: wmPosition === value ? "#0f1b22" : btn.background,
+                        }}
+                        disabled={!imgObj}
+                        onClick={() => setWmPosition(value)}
+                      >
+                        {labelText}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ textAlign: "center", marginTop: 8 }}>
+                  <button
+                    className="btn-primary"
+                    style={styles.btnPrimary}
+                    disabled={!imgObj || !wmText}
+                    onClick={applyWatermark}
+                  >
+                    Apply text / watermark
+                  </button>
+                  <p style={styles.muted}>
+                    Tip: Use a light color with low opacity in a corner for a clean, professional watermark.
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {tab === "bg" && (
+            <section className="card-hover" style={styles.card}>
+              <h2 style={styles.h2}>2) Magic Background Remover</h2>
+              <p style={styles.muted}>
+                This tool automatically samples the background color from the edges of your image and
+                makes similar pixels transparent. Works best if the background is fairly solid
+                (for example white, green or a simple gradient).
+              </p>
+
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, justifyContent: "center" }}>
+                  <label style={styles.label}>
+                    Tolerance: {bgTolerance}
+                    <input
+                      type="range"
+                      min="10"
+                      max="140"
+                      step="2"
+                      value={bgTolerance}
+                      onChange={(e) => setBgTolerance(parseInt(e.target.value, 10))}
+                      disabled={!imgObj}
+                    />
+                  </label>
+
+                  <label style={styles.label}>
+                    Feather: {bgFeather}
+                    <input
+                      type="range"
+                      min="0"
+                      max="60"
+                      step="2"
+                      value={bgFeather}
+                      onChange={(e) => setBgFeather(parseInt(e.target.value, 10))}
+                      disabled={!imgObj}
+                    />
+                  </label>
+                </div>
+
+                {bgSamplePreview && (
+                  <div style={{ textAlign: "center", fontSize: 12, color: "#9ca3af" }}>
+                    Detected background color:{" "}
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: 18,
+                        height: 18,
+                        borderRadius: 4,
+                        border: "1px solid #2b2b2b",
+                        verticalAlign: "middle",
+                        background: bgSamplePreview,
+                        marginLeft: 6,
+                      }}
+                    />
+                    <span style={{ marginLeft: 6 }}>{bgSamplePreview}</span>
+                  </div>
+                )}
+
+                <div style={{ textAlign: "center", marginTop: 8 }}>
+                  <button
+                    className="btn-primary"
+                    style={styles.btnPrimary}
+                    disabled={!imgObj}
+                    onClick={applyMagicBackgroundRemoval}
+                  >
+                    Remove background (make it transparent)
+                  </button>
+                  <p style={styles.muted}>
+                    Best used with PNG format in the Download step, so the transparent background is preserved.
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
           <PreviewSection
             canvasRef={canvasRef}
             overlayRef={overlayRef}
@@ -1357,19 +1997,18 @@ export default function App() {
       </main>
 
       <footer style={styles.footer}>
-  <div>
-    © {new Date().getFullYear()} PhotoResizing — Free online image tools. Respectful, no spam.
-  </div>
-  <div style={{ marginTop: 4 }}>
-    <a
-      href="#privacy-policy"
-      style={{ color: "#a9e9ff", textDecoration: "none" }}
-    >
-      Privacy Policy
-    </a>
-  </div>
-</footer>
-
+        <div>
+          © {new Date().getFullYear()} PhotoResizing — Free online image tools. Respectful, no spam.
+        </div>
+        <div style={{ marginTop: 4 }}>
+          <a
+            href="#privacy-policy"
+            style={{ color: "#a9e9ff", textDecoration: "none" }}
+          >
+            Privacy Policy
+          </a>
+        </div>
+      </footer>
 
       {/* Overlay events mount only when needed */}
       {tab === "resize" && imgObj && cropMode && (
@@ -1437,7 +2076,7 @@ const styles = {
     transition: "all .2s ease-in-out",
     minWidth: 240,
   },
-  muted: { fontSize: 12, color: "#9ca3af", marginTop: 8 },
+  muted: { fontSize: 12, color: "#9ca3af", marginTop: 8, textAlign: "left" },
   footer: {
     borderTop: "1px solid #2b2b2b",
     marginTop: 24,
